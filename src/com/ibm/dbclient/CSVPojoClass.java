@@ -3,6 +3,11 @@
  */
 package com.ibm.dbclient;
 
+
+import java.io.File;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+
 /**
  * @author KiranSuresh
  *
@@ -29,31 +34,6 @@ public class CSVPojoClass {
 	boolean AppendRequired;
 	String Elements;
 	int ColumnToConsider;
-	/*
-	
-	public String getHTTPUrlServelt() {
-		return HTTPUrlServelt;
-	}
-	
-	public void setHTTPUrlServelt(String hTTPUrlServelt) {
-		HTTPUrlServelt = hTTPUrlServelt;
-	}
-	
-	public String getUserId() {
-		return UserId;
-	}
-	
-	public void setUserId(String userId) {
-		UserId = userId;
-	}
-	
-	public String getPassword() {
-		return Password;
-	}
-	
-	public void setPassword(String password) {
-		Password = password;
-	}*/
 	
 	/**
 	 * @return the elements
@@ -125,6 +105,12 @@ public class CSVPojoClass {
 	 * @param filePath the filePath to set
 	 */
 	public void setFilePath(String filePath) {
+		String strYear = new SimpleDateFormat("yyyy").format(new Date());
+		String strMonth = new SimpleDateFormat("MM").format(new Date());
+		String strDay = new SimpleDateFormat("dd").format(new Date());
+		filePath=filePath+strYear+'/'+strMonth+'/'+strDay+'/';
+		File file= new File(filePath);
+		file.mkdirs();
 		FilePath = filePath;
 	}
 	/**

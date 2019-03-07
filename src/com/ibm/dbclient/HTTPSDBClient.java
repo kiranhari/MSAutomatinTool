@@ -16,6 +16,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.util.Calendar;
 import java.util.Date;
 import java.util.TimeZone;
 
@@ -27,11 +28,9 @@ import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.poi.util.IOUtils;
 import org.jsoup.Jsoup;
 import org.jsoup.select.Elements;
-
-import com.ibm.dbclient.CSVPojoClass;
-import com.ibm.dbclient.PostResultInExcel;
 
 /**
  * 
@@ -45,7 +44,7 @@ public class HTTPSDBClient {
 	public String password;
 	public String start_ts = null;
 	public String end_ts = null;
-	int retry = 0;
+	
 
 	/**
 	 * Parameterized constructor: It initializes the class and disable SSL.
@@ -106,6 +105,11 @@ public class HTTPSDBClient {
 		HttpsURLConnection.setDefaultHostnameVerifier(allHostsValid);
 		// -----------------Disable SSL End--------------------------------------------
 	}
+	private Date yesterday() {
+	    final Calendar cal = Calendar.getInstance();
+	    cal.add(Calendar.DATE, -1);
+	    return cal.getTime();
+	}
 
 	/**
 	 * This function creates the payload and do URL encode of the payload for the
@@ -116,7 +120,7 @@ public class HTTPSDBClient {
 	 * @param ispaginationAllowed
 	 * @throws ParseException
 	 */
-	public void invokeDBClientWrapper(CSVPojoClass objCSV, File fileTemp) throws ParseException {
+	public void invokeDBClientWrapper(CSVPojoClass objCSV, File fileTemp,int retry) throws ParseException {
 		start_ts = objCSV.getStartTimeStamp();
 		end_ts = objCSV.getEndTimeStamp();
 
@@ -131,36 +135,39 @@ public class HTTPSDBClient {
 			System.out.println("End Time is " + end_ts);
 		}
 		String query = objCSV.getQuery();
+		//System.out.println(query);
 		boolean ispaginationAllowed = objCSV.getPagination();
 		int maxresultrows = objCSV.getNoOfRecords();
+		SimpleDateFormat formater = new SimpleDateFormat("yyyyMMdd");
+		formater.setTimeZone(TimeZone.getTimeZone("EST"));
+		String strYesterdayDate=String.valueOf((Integer.parseInt(formater.format(yesterday()))));
+		query=query.replace("YESTERDAY", strYesterdayDate);
 		query = query.replace("START_TS", start_ts);
 		query = query.replace("END_TS", end_ts);
-		query = query.toUpperCase();
+		//query = query.toUpperCase();
 		String payload = null;
-		String result = null;
+		String result = null;		
 		try {
 			payload = queryPrefix.replace("USER_NAME", URLEncoder.encode(username, "UTF-8"));
 			payload = payload.replace("PWD", URLEncoder.encode(password, "UTF-8"));
 			payload = payload + URLEncoder.encode(query, "UTF-8");
+			String strQueryEncoded=URLEncoder.encode(query, "UTF-8");
 			payload = payload.replace("RESULT_ROWS", String.valueOf(maxresultrows));
 			if (ispaginationAllowed || query.contains("ORDER BY"))
 				payload = payload.replace("PAGINATE_FLAG", "Y");
 			else
 				payload = payload.replace("PAGINATE_FLAG", "N");
-			// System.out.println(query);
 			long startTime = System.currentTimeMillis();
-
-			result = invokeDBClient(payload);
-
+			result=invokeDBClient(payload);
 			long endTime = System.currentTimeMillis();
 
 			System.out.println("That took " + (endTime - startTime) + " milliseconds");
-
-			if (containsError(result)) {
+			boolean boolIsException=result.contains("inbox");
+			if (containsError(result) && !(boolIsException)) {
 				if (retry < 3) {
-					System.out.println("Retry Count is " + retry);
-					invokeDBClientWrapper(objCSV, fileTemp);
 					retry++;
+					System.out.println("Retry Count is " + retry);
+					invokeDBClientWrapper(objCSV, fileTemp,retry);					
 				}
 				return;
 			}
@@ -168,17 +175,23 @@ public class HTTPSDBClient {
 			if (objCSV.getAppendRequired())
 				writeInTempFile(fileTemp, result);
 			else {
+				//System.out.println("OutputResult"+fileTemp.getAbsolutePath());
+				//writeInTempFile(fileTemp, result);
+				
 				boolean boolIsExcelRequired = objCSV.getExcelFileNeeded();
-				String strFullFilePath = objCSV.getFilePath() + objCSV.getFileName();
-				PostResultInExcel objPostExcel = new PostResultInExcel();
+				String strIndianTime = new SimpleDateFormat("yyyyMMddHH").format(new Date());
+				String strFullFilePath = objCSV.getFilePath() + objCSV.getFileName()+strIndianTime;
+				PostResultInExcelTemp objPostExcel = new PostResultInExcelTemp();
 				objPostExcel.getResultsToPublishInExcel(result, "table[id=QueryResult] tr", strFullFilePath,
-						boolIsExcelRequired, objCSV.getAppendRequired());
+						boolIsExcelRequired, objCSV.getAppendRequired(),null,0,null,null,ReadCSVToGetDetails.mapFileLocationForMail);
+				//String strElements, int iValueToConsider,String strPropFile,String strTemplateFile
 			}
 			printResults(result, "table[id=QueryResult] tr");
 		} catch (Exception e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 			System.out.println("Error Occured while Invoking DB Client!!!!\n" + e.getMessage());
+			//session.disconnect();
 			return;
 		}
 
@@ -192,7 +205,6 @@ public class HTTPSDBClient {
 		fw.write('\n');
 		fw.flush();
 		fw.close();
-
 	}
 
 	/**
@@ -218,11 +230,17 @@ public class HTTPSDBClient {
 			output.close();
 			BufferedReader br = new BufferedReader(new InputStreamReader(con.getInputStream()));
 			char c[] = new char[10000];
-			br.read(c, 0, 10000);
+			   String line = null;
+			   StringBuilder sb = new StringBuilder();
+			 while ((line = br.readLine()) != null) {
+			        sb.append(line + "\n");
+			      }
+			 s=sb.toString();
+			/*br.read(c, 0, 10000);
 			br.close();
 			con.disconnect();
 			// System.out.println(i);
-			s = new String(c);
+			s = new String(c);*/
 		} catch (MalformedURLException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
@@ -325,10 +343,10 @@ public class HTTPSDBClient {
 			int maxrow = 1;
 			while ((query = br.readLine()) != null) {
 				maxrow = Integer.parseInt(br.readLine());
-				System.out.println("max:" + maxrow);
+				//System.out.println("max:" + maxrow);
 				// query = query.replace("START_TS", start_ts);
 				// query = query.replace("END_TS", end_ts);
-				System.out.println("Query:" + query);
+				//System.out.println("Query:" + query);
 				String fileTemp = null;
 				boolean disablepagination = false;
 				strResult = invokeDBClientWrapper(query, maxrow, disablepagination, fileTemp);
